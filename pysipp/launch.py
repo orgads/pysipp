@@ -6,6 +6,7 @@ import select
 import shlex
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections import namedtuple
@@ -22,6 +23,10 @@ Streams = namedtuple("Streams", "stdout stderr")
 class TimeoutError(Exception):
     "SIPp process timeout exception"
 
+if sys.platform == "win32":
+    class EPollWrapper:
+        def __init__():
+            self.rlist = []
 
 class PopenRunner(object):
     """Run a sequence of SIPp agents asynchronously. If any process terminates
@@ -35,12 +40,15 @@ class PopenRunner(object):
         self,
         subprocmod=subprocess,
         osmod=os,
-        poller=select.epoll,
+        poller=None,
     ):
         # these could optionally be rpyc proxy objs
         self.spm = subprocmod
         self.osm = osmod
-        self.poller = poller()
+        if poller is None and sys.platform != "win32":
+            poller = select.epoll
+        if poller is not None:
+            self.poller = poller()
         # collector thread placeholder
         self._waiter = None
         # store proc results
@@ -67,7 +75,6 @@ class PopenRunner(object):
             fd = proc.stderr.fileno()
             log.debug("registering fd '{}' for pid '{}'".format(fd, proc.pid))
             fds2procs[fd] = self._procs[cmd] = proc
-            # register for stderr hangup events
             self.poller.register(proc.stderr.fileno(), select.EPOLLHUP)
             # limit launch rate
             time.sleep(1.0 / rate)
